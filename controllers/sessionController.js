@@ -2,18 +2,12 @@ import Session from '../models/Session.js';
 import Order from '../models/Order.js';
 import Member from '../models/Member.js';
 import { todayIST, isPastCutoff, msToCutoff } from '../utils/time.js';
+import { getOrCreateTodaySession } from '../utils/session.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 /** GET /api/session/today — get or create today's session */
 export const getToday = asyncHandler(async (req, res) => {
-  const date = todayIST();
-  const cutoffTime = process.env.CUTOFF_TIME || '15:15';
-  const breakTime = process.env.BREAK_TIME || '15:30';
-
-  let session = await Session.findOne({ date });
-  if (!session) {
-    session = await Session.create({ date, cutoffTime, breakTime, isLocked: false });
-  }
+  const session = await getOrCreateTodaySession();
 
   const pastCutoff = isPastCutoff(session);
   const msLeft = msToCutoff(session);
@@ -25,7 +19,7 @@ export const getToday = asyncHandler(async (req, res) => {
       date: session.date,
       cutoffTime: session.cutoffTime,
       breakTime: session.breakTime,
-      isLocked: false,
+      isLocked: pastCutoff,
       pastCutoff,
       msUntilCutoff: msLeft,
     },
@@ -101,7 +95,11 @@ export const getHistory = asyncHandler(async (req, res) => {
   const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
   const today = todayIST();
 
-  const sessions = await Session.find({ date: { $lt: today } })
+  // Today's session joins history once its ordering deadline has passed
+  const todaySession = await Session.findOne({ date: today });
+  const includeToday = todaySession ? isPastCutoff(todaySession) : false;
+
+  const sessions = await Session.find({ date: includeToday ? { $lte: today } : { $lt: today } })
     .sort({ date: -1 })
     .limit(days);
 

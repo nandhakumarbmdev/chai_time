@@ -87,13 +87,13 @@ console.assert(!validateMongoUri('mongodb://127.0.0.1:27017/db'), '❌ FAIL: 127
 console.assert(validateMongoUri('mongodb+srv://user:pass@cluster.mongodb.net/db'), '❌ FAIL: Atlas cloud URI must be accepted');
 console.log('✅ Test 7 passed: cloud MongoDB validation enforces remote/Atlas URI');
 
-// ─── Unblocked order rule ─────────────────────────────────────────────────────
-// Test 8: Can update order anytime even past cutoff
-function canPlaceOrder(_session) {
-  return true;
+// ─── Deadline rule ───────────────────────────────────────────────────────────
+// Test 8: ordering is allowed before the cutoff and blocked after it
+function canPlaceOrder(session) {
+  return !isPastCutoff(session);
 }
-console.assert(canPlaceOrder(past) === true, '❌ FAIL: order should never be blocked');
-console.assert(canPlaceOrder(future) === true, '❌ FAIL: order should never be blocked');
-console.log('✅ Test 8 passed: ordering is never blocked, updates allowed anytime');
+console.assert(canPlaceOrder(future) === true, '❌ FAIL: order should be allowed before cutoff');
+console.assert(canPlaceOrder(past) === false, '❌ FAIL: order should be blocked past cutoff');
+console.log('✅ Test 8 passed: ordering blocked once the cutoff has passed');
 
 console.log('\n🎉 All tests passed successfully!');

@@ -5,6 +5,7 @@ import { Server as SocketIO } from 'socket.io';
 import helmet from 'helmet';
 import cors from 'cors';
 import { rateLimit } from 'express-rate-limit';
+import mongoose from 'mongoose';
 
 import { connectDB } from './config/db.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -72,7 +73,16 @@ app.use('/api/members', memberRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+// Uptime monitor target: keeps the Render instance awake and the Mongo connection warm.
+// GET and HEAD both work; 503 tells the monitor the database is unreachable.
+app.get('/api/health', async (_req, res) => {
+  try {
+    await mongoose.connection.db.admin().ping();
+    res.json({ ok: true, db: 'up', uptime: Math.round(process.uptime()) });
+  } catch {
+    res.status(503).json({ ok: false, db: 'down' });
+  }
+});
 
 // ── Error handler ──────────────────────────────────────────────────────────
 app.use(errorHandler);
