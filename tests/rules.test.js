@@ -32,6 +32,14 @@ const ms2 = msToCutoff(past);
 console.assert(ms2 === 0, '❌ FAIL: ms to 00:01 should be 0');
 console.log(`✅ Test 4 passed: ms to 00:01 = ${ms2}ms`);
 
+// Test 3b: 19:00 IST cutoff is 13:30 UTC — must hold on a UTC host
+const evening = { date: '2026-10-28', cutoffTime: '19:00' };
+const at = (iso) => Date.parse(iso);
+console.assert(!isPastCutoff(evening, at('2026-10-28T13:29:00Z')), '❌ FAIL: 18:59 IST should be open');
+console.assert(isPastCutoff(evening, at('2026-10-28T13:31:00Z')), '❌ FAIL: 19:01 IST should be closed');
+console.assert(msToCutoff(evening, at('2026-10-28T13:29:00Z')) === 60_000, '❌ FAIL: 1 min to cutoff');
+console.log('✅ Test 3b passed: 19:00 IST cutoff = 13:30 UTC');
+
 // ─── Tally calculation ───────────────────────────────────────────────────────
 
 // Test 5: basic tally (clean drink count without sugar breakdown)

@@ -17,23 +17,25 @@ export function yesterdayIST() {
   return dayjs().tz(TZ).subtract(1, 'day').format('YYYY-MM-DD');
 }
 
+/** The cutoff instant: session.date + session.cutoffTime read as IST wall-clock time, whatever the host TZ */
+function cutoffInstant(session) {
+  return dayjs.tz(`${session.date} ${session.cutoffTime}`, 'YYYY-MM-DD HH:mm', TZ);
+}
+
 /**
  * Checks whether the current time is past the cutoff for the given session.
  * @param {object} session  - Mongoose Session doc with .date and .cutoffTime
+ * @param {number} [now]    - epoch ms, defaults to Date.now() (injectable for tests)
  * @returns {boolean}
  */
-export function isPastCutoff(session) {
-  const [hh, mm] = session.cutoffTime.split(':').map(Number);
-  const cutoff = dayjs.tz(session.date, TZ).hour(hh).minute(mm).second(0);
-  return dayjs().isAfter(cutoff);
+export function isPastCutoff(session, now = Date.now()) {
+  return now > cutoffInstant(session).valueOf();
 }
 
 /**
  * Returns milliseconds remaining until cutoff (0 if already past).
  */
-export function msToCutoff(session) {
-  const [hh, mm] = session.cutoffTime.split(':').map(Number);
-  const cutoff = dayjs.tz(session.date, TZ).hour(hh).minute(mm).second(0);
-  return Math.max(0, cutoff.valueOf() - Date.now());
+export function msToCutoff(session, now = Date.now()) {
+  return Math.max(0, cutoffInstant(session).valueOf() - now);
 }
 

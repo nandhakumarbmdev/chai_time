@@ -9,6 +9,7 @@ import mongoose from 'mongoose';
 
 import { connectDB } from './config/db.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { todayIST } from './utils/time.js';
 
 import sessionRoutes from './routes/session.js';
 import memberRoutes from './routes/members.js';
@@ -93,6 +94,9 @@ const PORT = process.env.PORT || 4000;
 connectDB().then(() => {
   server.listen(PORT, () => {
     console.log(`🚀 Chai Time API running on http://localhost:${PORT}`);
+    console.log(
+      `🕒 server now ${new Date().toISOString()} | IST date ${todayIST()} | CUTOFF_TIME=${process.env.CUTOFF_TIME ?? '(unset)'} (IST)`
+    );
   });
 });
 

@@ -1,12 +1,5 @@
 import mongoose from 'mongoose';
-import dayjs from 'dayjs';
-import timezone from 'dayjs/plugin/timezone.js';
-import utc from 'dayjs/plugin/utc.js';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
-
-const TZ = 'Asia/Kolkata';
+import { isPastCutoff } from '../utils/time.js';
 
 const sessionSchema = new mongoose.Schema(
   {
@@ -22,9 +15,7 @@ const sessionSchema = new mongoose.Schema(
 
 /** Derive whether this session is past cutoff right now */
 sessionSchema.virtual('isPastCutoff').get(function () {
-  const [hh, mm] = this.cutoffTime.split(':').map(Number);
-  const cutoff = dayjs.tz(this.date, TZ).hour(hh).minute(mm).second(0);
-  return dayjs().isAfter(cutoff);
+  return isPastCutoff(this);
 });
 
 export default mongoose.model('Session', sessionSchema);
