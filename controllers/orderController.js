@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import mongoose from 'mongoose';
 import Order from '../models/Order.js';
 import Session from '../models/Session.js';
 import Member from '../models/Member.js';
@@ -7,15 +8,17 @@ import { asyncHandler, httpError } from '../middleware/errorHandler.js';
 import { yesterdayIST, isPastCutoff } from '../utils/time.js';
 import { getOrCreateTodaySession } from '../utils/session.js';
 
+const objectId = z.string().min(1).refine((v) => mongoose.isValidObjectId(v), 'Invalid id');
+
 const orderSchema = z.object({
-  memberId: z.string().min(1),
-  menuItemId: z.string().min(1),
+  memberId: objectId,
+  menuItemId: objectId,
   sugarLevel: z.enum(['none', 'less', 'normal', 'extra']).optional().default('normal'),
   note: z.string().max(100).optional().default(''),
 });
 
 const skipSchema = z.object({
-  memberId: z.string().min(1),
+  memberId: objectId,
 });
 
 /** Resolve today's session and reject if the ordering deadline has passed */
@@ -25,29 +28,40 @@ async function requireOpenSession() {
   return session;
 }
 
+/** Upsert one order per (session, member); a concurrent first write can hit the unique index, so retry once */
+async function upsertOrder(filter, update) {
+  const run = () =>
+    Order.findOneAndUpdate(filter, update, { upsert: true, new: true, setDefaultsOnInsert: true }).lean();
+  try {
+    return await run();
+  } catch (err) {
+    if (err?.code !== 11000) throw err;
+    return run();
+  }
+}
+
 /** POST /api/orders — place or update an order (until the cutoff) */
 export const placeOrder = asyncHandler(async (req, res) => {
   const parsed = orderSchema.safeParse(req.body);
-  if (!parsed.success) throw httpError(parsed.error.errors[0].message, 400);
+  if (!parsed.success) throw httpError(parsed.error.issues[0].message, 400);
 
   const { memberId, menuItemId, sugarLevel, note } = parsed.data;
-  const session = await requireOpenSession();
 
-  // Validate member and menu item exist
-  const [member, menuItem] = await Promise.all([
-    Member.findById(memberId),
-    MenuItem.findById(menuItemId),
+  // Session, member and menu item lookups are independent
+  const [session, member, menuItem] = await Promise.all([
+    requireOpenSession(),
+    Member.findById(memberId).select('name').lean(),
+    MenuItem.findById(menuItemId).select('name emoji').lean(),
   ]);
   if (!member) throw httpError('Member not found', 404);
   if (!menuItem) throw httpError('Menu item not found', 404);
 
-  const order = await Order.findOneAndUpdate(
+  const saved = await upsertOrder(
     { session: session._id, member: memberId },
-    { status: 'ordered', menuItem: menuItemId, sugarLevel: sugarLevel || 'normal', note },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  )
-    .populate('menuItem', 'name emoji')
-    .populate('member', 'name');
+    { status: 'ordered', menuItem: menuItemId, sugarLevel: sugarLevel || 'normal', note }
+  );
+  // Already loaded above, so no populate round trips
+  const order = { ...saved, menuItem, member };
 
   // Broadcast via Socket.IO
   req.app.get('io').emit('order:update', { type: 'ordered', order });
@@ -58,19 +72,20 @@ export const placeOrder = asyncHandler(async (req, res) => {
 /** POST /api/orders/skip — mark skipping today (until the cutoff) */
 export const skipOrder = asyncHandler(async (req, res) => {
   const parsed = skipSchema.safeParse(req.body);
-  if (!parsed.success) throw httpError(parsed.error.errors[0].message, 400);
+  if (!parsed.success) throw httpError(parsed.error.issues[0].message, 400);
 
   const { memberId } = parsed.data;
-  const session = await requireOpenSession();
-
-  const member = await Member.findById(memberId);
+  const [session, member] = await Promise.all([
+    requireOpenSession(),
+    Member.findById(memberId).select('name').lean(),
+  ]);
   if (!member) throw httpError('Member not found', 404);
 
-  const order = await Order.findOneAndUpdate(
+  const saved = await upsertOrder(
     { session: session._id, member: memberId },
-    { status: 'skipped', menuItem: null, sugarLevel: 'normal', note: '' },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  ).populate('member', 'name');
+    { status: 'skipped', menuItem: null, sugarLevel: 'normal', note: '' }
+  );
+  const order = { ...saved, member };
 
   req.app.get('io').emit('order:update', { type: 'skipped', order });
 
@@ -81,6 +96,7 @@ export const skipOrder = asyncHandler(async (req, res) => {
 export const cancelOrder = asyncHandler(async (req, res) => {
   const memberId = req.query.memberId;
   if (!memberId) throw httpError('memberId query param required', 400);
+  if (!mongoose.isValidObjectId(memberId)) throw httpError('Invalid id', 400);
 
   const session = await requireOpenSession();
 

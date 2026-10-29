@@ -1,6 +1,7 @@
 import Session from '../models/Session.js';
 import Order from '../models/Order.js';
 import Member from '../models/Member.js';
+import MenuItem from '../models/MenuItem.js';
 import { todayIST, isPastCutoff, msToCutoff } from '../utils/time.js';
 import { getOrCreateTodaySession } from '../utils/session.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
@@ -28,22 +29,26 @@ export const getToday = asyncHandler(async (req, res) => {
 
 /** GET /api/session/tally — member statuses + drink counts */
 export const getTally = asyncHandler(async (req, res) => {
-  const date = todayIST();
-  const session = await Session.findOne({ date });
-  if (!session) {
-    return res.json({ success: true, members: [], drinks: [], totals: {} });
-  }
+  const session = await getOrCreateTodaySession();
 
-  const [members, orders] = await Promise.all([
-    Member.find({ active: true }).sort({ name: 1 }),
-    Order.find({ session: session._id })
-      .populate('member', 'name')
-      .populate('menuItem', 'name emoji'),
+  // Members and the (tiny) menu are resolved in memory instead of populate round trips
+  const [allMembers, orders, menuItems] = await Promise.all([
+    Member.find({}).select('name active').lean(),
+    Order.find({ session: session._id }).lean(),
+    MenuItem.find({}).select('name emoji').lean(),
   ]);
 
-  // Skip orders whose member no longer exists (populate returns null)
-  const liveOrders = orders.filter((o) => o.member);
-  const orderMap = new Map(liveOrders.map((o) => [o.member._id.toString(), o]));
+  const members = allMembers
+    .filter((m) => m.active)
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const memberIds = new Set(allMembers.map((m) => m._id.toString()));
+  const menuById = new Map(menuItems.map((i) => [i._id.toString(), i]));
+
+  // Skip orders whose member no longer exists
+  const liveOrders = orders
+    .filter((o) => memberIds.has(o.member.toString()))
+    .map((o) => ({ ...o, menuItem: o.menuItem ? menuById.get(o.menuItem.toString()) ?? null : null }));
+  const orderMap = new Map(liveOrders.map((o) => [o.member.toString(), o]));
 
   const memberList = members.map((m) => {
     const order = orderMap.get(m._id.toString());
