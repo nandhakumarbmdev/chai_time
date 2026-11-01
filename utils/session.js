@@ -1,5 +1,6 @@
 import Session from '../models/Session.js';
 import { todayIST } from './time.js';
+import { seedOrdersFromPrevious } from './seedOrders.js';
 
 export const DEFAULT_CUTOFF = '19:00';
 export const DEFAULT_BREAK = '15:30';
@@ -21,6 +22,12 @@ export async function getOrCreateTodaySession() {
   if (!session) {
     try {
       session = await Session.create({ date, cutoffTime, breakTime });
+      // Only the request that created today's session seeds it from previous orders
+      try {
+        await seedOrdersFromPrevious(session);
+      } catch (e) {
+        console.error('Failed to seed orders from previous day:', e);
+      }
     } catch (err) {
       // A concurrent first request of the day created it (unique index on date)
       if (err?.code !== 11000) throw err;
