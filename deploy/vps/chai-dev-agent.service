@@ -1,0 +1,18 @@
+[Unit]
+Description=Chai Time backend + dev agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=chai
+WorkingDirectory=/opt/chai_time
+EnvironmentFile=/etc/chai-dev-agent.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+StateDirectory=chai-dev
+
+[Install]
+WantedBy=multi-user.target
