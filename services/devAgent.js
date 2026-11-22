@@ -190,7 +190,12 @@ const git = (j, args, opts = {}) => run(j, 'git', args, { cwd: opts.cwd ?? j.rep
 
 async function mustGit(j, args, opts) {
   const r = await git(j, args, opts);
-  if (r.code !== 0) throw new Error(`git ${args[0]} failed: ${r.output.trim().split('\n').slice(-6).join(' | ')}`);
+  if (r.code !== 0) {
+    // Name the real subcommand, not a leading "-c key=value" option
+    const sub = args.find((a, i) => !a.startsWith('-') && args[i - 1] !== '-c');
+    const where = opts?.cwd ?? j.repo;
+    throw new Error(`git ${sub} failed (in ${where}): ${r.output.trim().split('\n').slice(-6).join(' | ')}`);
+  }
   return r.output.trim();
 }
 
