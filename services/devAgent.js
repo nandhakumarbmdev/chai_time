@@ -190,7 +190,7 @@ const git = (j, args, opts = {}) => run(j, 'git', args, { cwd: opts.cwd ?? j.rep
 
 async function mustGit(j, args, opts) {
   const r = await git(j, args, opts);
-  if (r.code !== 0) throw new Error(`git ${args[0]} failed: ${r.output.trim().split('\n').slice(-3).join(' ')}`);
+  if (r.code !== 0) throw new Error(`git ${args[0]} failed: ${r.output.trim().split('\n').slice(-6).join(' | ')}`);
   return r.output.trim();
 }
 
@@ -245,7 +245,7 @@ async function runJob(j) {
   fs.mkdirSync(c.workDir, { recursive: true });
 
   log(j, `📥 Fetching origin/${c.base}`);
-  await mustGit(j, ['fetch', 'origin', c.base]);
+  await mustGit(j, [...pushAuth(), 'fetch', 'origin', c.base]);
   await mustGit(j, ['worktree', 'add', '-b', j.branch, j.worktree, `origin/${c.base}`]);
   stop(j);
 
