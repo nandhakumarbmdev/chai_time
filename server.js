@@ -15,6 +15,9 @@ import sessionRoutes from './routes/session.js';
 import memberRoutes from './routes/members.js';
 import menuRoutes from './routes/menu.js';
 import orderRoutes from './routes/orders.js';
+import devRoutes from './routes/dev.js';
+import { checkAdminKey } from './middleware/adminKey.js';
+import { initDevAgent } from './services/devAgent.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -34,9 +37,20 @@ const io = new SocketIO(server, {
 });
 
 app.set('io', io);
+initDevAgent(io);
 
 io.on('connection', (socket) => {
   console.log(`🔌 Client connected: ${socket.id}`);
+  // Dev-agent progress stream: join the 'dev' room (requires ADMIN_KEY only if one is configured)
+  socket.on('dev:subscribe', (payload, ack) => {
+    try {
+      const ok = checkAdminKey(payload?.key, socket.handshake.address);
+      if (ok) socket.join('dev');
+      ack?.({ ok });
+    } catch (err) {
+      ack?.({ ok: false, message: err.message });
+    }
+  });
   socket.on('disconnect', () => console.log(`❌ Client disconnected: ${socket.id}`));
 });
 
@@ -73,6 +87,7 @@ app.use('/api/session', sessionRoutes);
 app.use('/api/members', memberRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/dev', devRoutes);
 
 // Uptime monitor target: keeps the Render instance awake and the Mongo connection warm.
 // GET and HEAD both work; 503 tells the monitor the database is unreachable.
