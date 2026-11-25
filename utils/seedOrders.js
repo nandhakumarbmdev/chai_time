@@ -3,10 +3,14 @@ import Member from '../models/Member.js';
 import MenuItem from '../models/MenuItem.js';
 import Session from '../models/Session.js';
 
+/** "YYYY-MM-DD" falls on Saturday or Sunday (parsed as UTC so the host timezone doesn't matter) */
+const isWeekend = (date) => [0, 6].includes(new Date(`${date}T00:00:00Z`).getUTCDay());
+
 /**
- * Copy each active member's most recent 'ordered' order (from any earlier session)
+ * Copy each active member's 'ordered' order from the most recent previous weekday session only
  * into the given session, so members only act when they want to change something.
- * Skipped days are ignored. Idempotent via the unique {session, member} index.
+ * Members who didn't order in that session (pending/skipped/cleared) get nothing.
+ * Idempotent via the unique {session, member} index.
  */
 export async function seedOrdersFromPrevious(session) {
   const [members, items] = await Promise.all([
@@ -18,20 +22,25 @@ export async function seedOrdersFromPrevious(session) {
   const availableItems = new Set(items.map((i) => i._id.toString()));
   const activeMembers = members.map((m) => m._id);
 
-  const latest = await Order.aggregate([
-    { $match: { status: 'ordered', menuItem: { $ne: null }, member: { $in: activeMembers }, session: { $ne: session._id } } },
-    { $lookup: { from: Session.collection.name, localField: 'session', foreignField: '_id', as: 's' } },
-    { $unwind: '$s' },
-    { $match: { 's.date': { $lt: session.date } } },
-    { $sort: { 's.date': -1 } },
-    { $group: { _id: '$member', menuItem: { $first: '$menuItem' }, sugarLevel: { $first: '$sugarLevel' }, note: { $first: '$note' } } },
-  ]);
+  // Previous working day: weekend sessions are ignored, so Monday copies Friday's orders
+  const recent = await Session.find({ date: { $lt: session.date } }).sort({ date: -1 }).limit(10).select('_id date').lean();
+  const prev = recent.find((s) => !isWeekend(s.date));
+  if (!prev) return 0;
+
+  const latest = await Order.find({
+    session: prev._id,
+    status: 'ordered',
+    menuItem: { $ne: null },
+    member: { $in: activeMembers },
+  })
+    .select('member menuItem sugarLevel note')
+    .lean();
 
   const docs = latest
     .filter((o) => availableItems.has(o.menuItem.toString()))
     .map((o) => ({
       session: session._id,
-      member: o._id,
+      member: o.member,
       status: 'ordered',
       menuItem: o.menuItem,
       sugarLevel: o.sugarLevel,
